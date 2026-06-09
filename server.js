@@ -10,7 +10,8 @@ import postgres from 'postgres'
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const sql = postgres(process.env.DATABASE_URL, { ssl: 'require' })
