@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAnalise } from './hooks/useAnalise.js'
 import Upload from './pages/Upload.jsx'
 import Dashboard from './pages/Dashboard.jsx'
@@ -7,6 +7,7 @@ import Alertas from './pages/Alertas.jsx'
 import LojaDetail from './pages/LojaDetail.jsx'
 import Historico from './pages/Historico.jsx'
 
+const AGREGADOR_URL = 'https://agregador-boti.vercel.app'
 const TABS = [
   { id: 'upload', label: 'Arquivos', icon: 'ti-upload' },
   { id: 'dashboard', label: 'Dashboard', icon: 'ti-chart-bar' },
@@ -17,8 +18,49 @@ const TABS = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('upload')
+  const [ssoStatus, setSsoStatus] = useState('checking') // 'checking' | 'ok' | 'blocked'
   const ctx = useAnalise()
   const { alertas, scores, updateStatus, getInsight, lastAnalysis } = ctx
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('sso')
+    if (!token) { setSsoStatus('blocked'); return }
+    fetch(`${AGREGADOR_URL}/api/sso/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.valid) {
+          window.history.replaceState({}, '', window.location.pathname)
+          setSsoStatus('ok')
+        } else {
+          setSsoStatus('blocked')
+        }
+      })
+      .catch(() => setSsoStatus('blocked'))
+  }, [])
+
+  if (ssoStatus === 'checking') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: '#6b7280', fontSize: 14 }}>Verificando acesso...</p>
+      </div>
+    )
+  }
+
+  if (ssoStatus === 'blocked') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+        <i className="ti ti-lock" style={{ fontSize: 36, color: '#185FA5' }} />
+        <p style={{ color: '#374151', fontSize: 15, fontWeight: 600 }}>Acesso restrito</p>
+        <p style={{ color: '#6b7280', fontSize: 13 }}>Este sistema só pode ser acessado pelo portal O Boticário Niterói.</p>
+        <a href={AGREGADOR_URL} style={{ marginTop: 8, fontSize: 13, color: '#185FA5', textDecoration: 'none' }}>Ir para o portal →</a>
+      </div>
+    )
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa' }}>
