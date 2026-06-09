@@ -1,5 +1,5 @@
 // src/hooks/useAnalise.js
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Papa from 'papaparse'
 import { runAnalysis, computeScores } from '../lib/engine.js'
 import { api } from '../lib/api.js'
@@ -12,6 +12,42 @@ export function useAnalise() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lastAnalysis, setLastAnalysis] = useState(null)
+  const [saveError, setSaveError] = useState(null)
+
+  // Ao montar: carrega alertas da última análise salva no banco
+  useEffect(() => {
+    api.alertas()
+      .then(rows => {
+        if (rows && rows.length > 0) {
+          // Normaliza campos do banco para o formato do frontend
+          const normalizados = rows.map(r => ({
+            ...r,
+            id: r.id,
+            loja: r.loja,
+            data: r.data_ocorrencia
+              ? new Date(r.data_ocorrencia).toLocaleDateString('pt-BR')
+              : '',
+            tipo: r.tipo,
+            gerVal: Number(r.ger_val || 0),
+            fiscVal: Number(r.fisc_val || 0),
+            diverg: Number(r.divergencia || 0),
+            status: r.status || 'pendente',
+            aiInsight: r.ai_insight || null,
+          }))
+          setAlertas(normalizados)
+          setScores(computeScores(normalizados))
+          // Busca data da análise mais recente
+          api.historico().then(hist => {
+            if (hist && hist.length > 0) {
+              setLastAnalysis(new Date(hist[0].realizada_em))
+            }
+          }).catch(() => {})
+        }
+      })
+      .catch(() => {
+        // Silencioso: se o backend estiver adormecido, começa vazio
+      })
+  }, [])
 
   const loadCSV = useCallback((file, type) => {
     return new Promise((resolve, reject) => {
@@ -36,6 +72,7 @@ export function useAnalise() {
     }
     setLoading(true)
     setError(null)
+    setSaveError(null)
     try {
       const novosAlertas = runAnalysis(gerData, trocasData, config)
       const novosScores = computeScores(novosAlertas)
@@ -43,8 +80,12 @@ export function useAnalise() {
       setScores(novosScores)
       setLastAnalysis(new Date())
 
-      // Persiste no Neon
-      await api.salvarAnalise(novosAlertas, operador)
+      // Persiste no Neon — avisa se falhar
+      try {
+        await api.salvarAnalise(novosAlertas, operador)
+      } catch (saveErr) {
+        setSaveError('Análise concluída, mas não foi salva no servidor: ' + saveErr.message)
+      }
     } catch (e) {
       setError('Erro na análise: ' + e.message)
     } finally {
@@ -54,8 +95,6 @@ export function useAnalise() {
 
   const updateStatus = useCallback(async (localId, status) => {
     setAlertas(prev => prev.map(a => a.id === localId ? { ...a, status } : a))
-    // Busca o id real no banco (se já foi salvo) — aqui usamos índice por ora
-    // Em produção, o id do banco retorna do salvarAnalise e pode ser mapeado
   }, [])
 
   const getInsight = useCallback(async (alerta) => {
@@ -66,7 +105,7 @@ export function useAnalise() {
   }, [])
 
   return {
-    gerData, trocasData, alertas, scores, loading, error, lastAnalysis,
+    gerData, trocasData, alertas, scores, loading, error, saveError, lastAnalysis,
     loadCSV, analyze, updateStatus, getInsight,
     hasData: gerData !== null && trocasData !== null
   }
