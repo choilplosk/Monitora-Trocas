@@ -39,7 +39,7 @@ export function runAnalysis(gerData, trocasData, config = {}) {
 
   // ── Detecta colunas do Gerencial ─────────────────────────────────────────
   const cols = Object.keys(gerData[0] || {})
-  const colLoja = cols.find(k => k.toLowerCase().includes('listar') || k.toLowerCase().includes('loja')) || cols[0]
+  const colLoja = cols.find(k => k.replace(/^\uFEFF/, '').toLowerCase().includes('listar') || k.toLowerCase().includes('loja')) || cols[0]
   const colData = cols.find(k => k.toLowerCase().includes('data') || k.toLowerCase().includes('quebrar')) || cols[1]
   const colTrocaVal = cols.find(k => k === 'Trocas-Trocas' || k.toLowerCase().includes('trocas-trocas'))
   const colTrocaQtd = cols.find(k => k.toLowerCase().includes('qtd de trocas'))
@@ -66,7 +66,7 @@ export function runAnalysis(gerData, trocasData, config = {}) {
     const k = `${loja}__${data}`
     if (!fiscIndex[k]) fiscIndex[k] = { loja, data, total: 0, qtd: 0, erros: 0, canceladas: 0 }
     if (sit === 'Efetivada') { fiscIndex[k].total += val; fiscIndex[k].qtd++ }
-    else if (sit === 'Com Erro') { fiscIndex[k].erros++; fiscIndex[k].total += val }
+    else if (sit === 'Com Erro') { fiscIndex[k].erros++ }          // ← CORRIGIDO: não soma no total
     else if (sit === 'Cancelada') { fiscIndex[k].canceladas++ }
   })
 
