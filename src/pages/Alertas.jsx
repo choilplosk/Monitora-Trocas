@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { Badge, Card, Btn, SectionTitle, tipoBadge, statusBadge } from '../components/UI.jsx'
-import { TIPO_LABEL, STATUS_LABEL, fmtBRL } from '../lib/engine.js'
+import { TIPO_LABEL, STATUS_LABEL, fmtBRL, parseNum, extractLojaCod } from '../lib/engine.js'
 import { api } from '../lib/api.js'
 
 function InsightPanel({ alerta, onInsight }) {
@@ -102,51 +102,56 @@ export default function Alertas({ alertas, onStatusChange, onInsight, gerData, t
   }
 
   function exportRelatorio() {
-    // Monta linhas a partir dos dados brutos do gerencial cruzados com fiscal
-    // Cada linha: Loja, Data, Valor Gerencial, Valor Total NF, Diferença
     const rows = []
 
     if (gerData && gerData.length > 0) {
       const cols = Object.keys(gerData[0])
       const colLoja = cols.find(k => k.toLowerCase().includes('listar') || k.toLowerCase().includes('loja')) || cols[0]
       const colData = cols.find(k => k.toLowerCase().includes('data') || k.toLowerCase().includes('quebrar')) || cols[1]
-      const colVal = cols.find(k => k === 'Trocas-Trocas' || k.toLowerCase().includes('trocas-trocas'))
+      const colVal  = cols.find(k => k === 'Trocas-Trocas' || k.toLowerCase().includes('trocas-trocas'))
 
-      // Agrupa alertas por loja+data para pegar valor fiscal
-      const fiscMap = {}
-      alertas.forEach(a => {
-        const key = `${a.loja}__${a.data}`
-        if (!fiscMap[key]) fiscMap[key] = { fiscVal: a.fiscVal, gerVal: a.gerVal }
-      })
+      // Reconstrói fiscIndex direto do trocasData — mesma lógica do engine
+      const fiscIndex = {}
+      if (trocasData && trocasData.length > 0) {
+        trocasData.forEach(row => {
+          const cod  = extractLojaCod(row['Loja'] || '')
+          const data = (row['Emissão'] || '').trim()
+          const sit  = (row['Situação'] || '').trim()
+          const val  = parseNum(row['Valor'])
+          if (!cod || !data) return
+          const k = `${cod}__${data}`
+          if (!fiscIndex[k]) fiscIndex[k] = { total: 0 }
+          if (sit === 'Efetivada') fiscIndex[k].total += val
+        })
+      }
 
       gerData.forEach(row => {
-        const loja = (row[colLoja] || '').trim()
-        const data = (row[colData] || '').trim()
-        const gerVal = parseFloat((row[colVal] || '0').toString().replace(',', '.')) || 0
+        const loja   = (row[colLoja] || '').trim()
+        const data   = (row[colData] || '').trim()
+        const gerVal = parseNum(row[colVal])  // remove ponto de milhar corretamente
         if (!loja || !data) return
 
-        // Formata data para DD/MM/YYYY se vier em outro formato
         let dataFmt = data
         if (data.includes('-')) {
           const [y, m, d] = data.split('-')
           dataFmt = `${d}/${m}/${y}`
         }
 
-        const key = `${loja}__${dataFmt}`
-        const fiscVal = fiscMap[key]?.fiscVal || 0
+        const cod     = extractLojaCod(loja)
+        const fiscVal = fiscIndex[`${cod}__${data}`]?.total || 0
+
         rows.push({
           'Loja': loja,
           'Data': dataFmt,
           'Valor Gerencial (R$)': gerVal,
-          'Valor Total NF (R$)': fiscVal,
+          'Valor Total NF (R$)': +fiscVal.toFixed(2),
           'Diferença (R$)': +(gerVal - fiscVal).toFixed(2)
         })
       })
 
-      // Ordena por data crescente
       rows.sort((a, b) => parseDateBR(a['Data']).localeCompare(parseDateBR(b['Data'])))
     } else {
-      // Fallback: usa alertas se não houver dados brutos
+      // Fallback sem dados brutos
       alertas
         .slice()
         .sort((a, b) => parseDateBR(a.data).localeCompare(parseDateBR(b.data)))
