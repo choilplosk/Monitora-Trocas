@@ -63,7 +63,7 @@ export function runAnalysis(gerData, trocasData, config = {}) {
     const k = `${loja}__${data}`
     if (!fiscIndex[k]) fiscIndex[k] = { loja, data, total: 0, qtd: 0, erros: 0, canceladas: 0 }
     if (sit === 'Efetivada') { fiscIndex[k].total += val; fiscIndex[k].qtd++ }
-    else if (sit === 'Com Erro') { fiscIndex[k].erros++; fiscIndex[k].total += val }
+    else if (sit === 'Com Erro') { fiscIndex[k].erros++ }
     else if (sit === 'Cancelada') { fiscIndex[k].canceladas++ }
   })
 
