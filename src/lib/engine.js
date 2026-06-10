@@ -10,6 +10,14 @@ export function normalizeLojaName(s) {
   return String(s).replace(/^0+/, '').trim().toUpperCase().replace(/\s+/g, ' ')
 }
 
+// Extrai apenas o código numérico do início do nome da loja
+// Ex: "018682 - 18682 J & C PERFUMARIA" → "18682"
+// Ex: "18682 - J & C PERFUMARIA"        → "18682"
+export function extractLojaCod(s) {
+  const m = String(s).replace(/^0+/, '').match(/^(\d+)/)
+  return m ? m[1] : normalizeLojaName(s)
+}
+
 export const TIPO_LABEL = {
   sem_nf: 'Sem NF fiscal',
   divergencia: 'Divergência de valor',
@@ -41,29 +49,30 @@ export function runAnalysis(gerData, trocasData, config = {}) {
   const colTrocaVal = cols.find(k => k === 'Trocas-Trocas' || k.toLowerCase().includes('trocas-trocas'))
   const colTrocaQtd = cols.find(k => k.toLowerCase().includes('qtd de trocas'))
 
-  // ── Indexa Gerencial por loja+data ────────────────────────────────────────
+  // ── Indexa Gerencial por cod_loja+data ────────────────────────────────────
   const gerIndex = {}
   gerData.forEach(row => {
     const loja = normalizeLojaName(row[colLoja] || '')
+    const cod  = extractLojaCod(row[colLoja] || '')
     const data = (row[colData] || '').trim()
-    const val = parseNum(row[colTrocaVal])
-    const qtd = parseNum(row[colTrocaQtd])
-    if (!loja || !data) return
-    gerIndex[`${loja}__${data}`] = { loja, data, val, qtd }
+    const val  = parseNum(row[colTrocaVal])
+    const qtd  = parseNum(row[colTrocaQtd])
+    if (!cod || !data) return
+    gerIndex[`${cod}__${data}`] = { loja, cod, data, val, qtd }
   })
 
-  // ── Indexa Fiscal por loja+data ───────────────────────────────────────────
+  // ── Indexa Fiscal por cod_loja+data ───────────────────────────────────────
   const fiscIndex = {}
   trocasData.forEach(row => {
-    const loja = normalizeLojaName(row['Loja'] || '')
+    const cod  = extractLojaCod(row['Loja'] || '')
     const data = (row['Emissão'] || '').trim()
-    const sit = (row['Situação'] || '').trim()
-    const val = parseNum(row['Valor'])
-    if (!loja || !data) return
-    const k = `${loja}__${data}`
-    if (!fiscIndex[k]) fiscIndex[k] = { loja, data, total: 0, qtd: 0, erros: 0, canceladas: 0 }
-    if (sit === 'Efetivada') { fiscIndex[k].total += val; fiscIndex[k].qtd++ }
-    else if (sit === 'Com Erro') { fiscIndex[k].erros++ }
+    const sit  = (row['Situação'] || '').trim()
+    const val  = parseNum(row['Valor'])
+    if (!cod || !data) return
+    const k = `${cod}__${data}`
+    if (!fiscIndex[k]) fiscIndex[k] = { cod, data, total: 0, qtd: 0, erros: 0, canceladas: 0 }
+    if (sit === 'Efetivada')  { fiscIndex[k].total += val; fiscIndex[k].qtd++ }
+    else if (sit === 'Com Erro')  { fiscIndex[k].erros++ }
     else if (sit === 'Cancelada') { fiscIndex[k].canceladas++ }
   })
 
@@ -73,7 +82,7 @@ export function runAnalysis(gerData, trocasData, config = {}) {
 
   Object.values(gerIndex).forEach(ger => {
     if (ger.val <= 0) return
-    const k = `${ger.loja}__${ger.data}`
+    const k = `${ger.cod}__${ger.data}`
     const fisc = fiscIndex[k]
 
     if (!fisc || fisc.total === 0) {
@@ -84,7 +93,7 @@ export function runAnalysis(gerData, trocasData, config = {}) {
       })
     } else {
       const diff = ger.val - fisc.total
-      const pct = Math.abs(diff) / ger.val * 100
+      const pct  = Math.abs(diff) / ger.val * 100
       if (Math.abs(diff) >= threshold && pct > tolPct) {
         alertas.push({
           id: id++, loja: ger.loja, data: ger.data,
