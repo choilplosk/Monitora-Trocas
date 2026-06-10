@@ -1,5 +1,6 @@
 // src/pages/Alertas.jsx
 import React, { useState, useMemo } from 'react'
+import * as XLSX from 'xlsx'
 import { Badge, Card, Btn, SectionTitle, tipoBadge, statusBadge } from '../components/UI.jsx'
 import { TIPO_LABEL, STATUS_LABEL, fmtBRL } from '../lib/engine.js'
 import { api } from '../lib/api.js'
@@ -56,14 +57,20 @@ export default function Alertas({ alertas, onStatusChange, onInsight }) {
     (!filterStatus || a.status === filterStatus)
   ), [alertas, filterLoja, filterTipo, filterStatus])
 
-  function exportCSV() {
-    const rows = [
-      'Data,Loja,Tipo,Gerencial,Fiscal,Divergência,Status',
-      ...filtered.map(a => `${a.data},"${a.loja}",${TIPO_LABEL[a.tipo]},${a.gerVal || ''},${a.fiscVal || ''},${typeof a.diverg === 'number' ? a.diverg.toFixed(2) : a.diverg},${STATUS_LABEL[a.status]}`)
-    ].join('\n')
-    const blob = new Blob(['\ufeff' + rows], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'alertas_fiscais.csv'; a.click()
+  function exportXLSX() {
+    const data = filtered.map(a => ({
+      'Data': a.data,
+      'Loja': a.loja,
+      'Tipo': TIPO_LABEL[a.tipo],
+      'Gerencial (R$)': a.gerVal || '',
+      'Fiscal (R$)': a.fiscVal || '',
+      'Divergência (R$)': typeof a.diverg === 'number' ? a.diverg : '',
+      'Status': STATUS_LABEL[a.status]
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Alertas')
+    XLSX.writeFile(wb, 'alertas_fiscais.xlsx')
   }
 
   if (!alertas.length) {
@@ -93,8 +100,8 @@ export default function Alertas({ alertas, onStatusChange, onInsight }) {
           <option value="">Todos os status</option>
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <Btn onClick={exportCSV}>
-          <i className="ti ti-download" aria-hidden="true" /> Exportar CSV
+        <Btn onClick={exportXLSX}>
+          <i className="ti ti-download" aria-hidden="true" /> Exportar XLS
         </Btn>
         <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 'auto' }}>{filtered.length} alertas</span>
       </div>
