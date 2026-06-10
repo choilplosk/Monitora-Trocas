@@ -44,20 +44,48 @@ function InsightPanel({ alerta, onInsight }) {
   )
 }
 
-export default function Alertas({ alertas, onStatusChange, onInsight }) {
+// Converte "DD/MM/YYYY" para "YYYY-MM-DD" para ordenação correta
+function parseDateBR(str) {
+  if (!str) return ''
+  const [d, m, y] = str.split('/')
+  return `${y}-${m}-${d}`
+}
+
+// Extrai meses únicos dos alertas no formato "MM/YYYY"
+function getMeses(alertas) {
+  const set = new Set()
+  alertas.forEach(a => {
+    if (a.data) {
+      const parts = a.data.split('/')
+      if (parts.length === 3) set.add(`${parts[1]}/${parts[2]}`)
+    }
+  })
+  return [...set].sort((a, b) => {
+    const [ma, ya] = a.split('/')
+    const [mb, yb] = b.split('/')
+    return `${ya}-${ma}`.localeCompare(`${yb}-${mb}`)
+  })
+}
+
+export default function Alertas({ alertas, onStatusChange, onInsight, gerData, trocasData }) {
   const [filterLoja, setFilterLoja] = useState('')
-  const [filterTipo, setFilterTipo] = useState('')
+  const [filterMes, setFilterMes] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
 
   const lojas = useMemo(() => [...new Set(alertas.map(a => a.loja))].sort(), [alertas])
+  const meses = useMemo(() => getMeses(alertas), [alertas])
 
-  const filtered = useMemo(() => alertas.filter(a =>
-    (!filterLoja || a.loja === filterLoja) &&
-    (!filterTipo || a.tipo === filterTipo) &&
-    (!filterStatus || a.status === filterStatus)
-  ), [alertas, filterLoja, filterTipo, filterStatus])
+  const filtered = useMemo(() => {
+    return alertas
+      .filter(a =>
+        (!filterLoja || a.loja === filterLoja) &&
+        (!filterStatus || a.status === filterStatus) &&
+        (!filterMes || (a.data && a.data.slice(3) === filterMes))
+      )
+      .sort((a, b) => parseDateBR(a.data).localeCompare(parseDateBR(b.data)))
+  }, [alertas, filterLoja, filterStatus, filterMes])
 
-  function exportXLSX() {
+  function exportDivergencias() {
     const data = filtered.map(a => ({
       'Data': a.data,
       'Loja': a.loja,
@@ -71,6 +99,72 @@ export default function Alertas({ alertas, onStatusChange, onInsight }) {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Alertas')
     XLSX.writeFile(wb, 'alertas_fiscais.xlsx')
+  }
+
+  function exportRelatorio() {
+    // Monta linhas a partir dos dados brutos do gerencial cruzados com fiscal
+    // Cada linha: Loja, Data, Valor Gerencial, Valor Total NF, Diferença
+    const rows = []
+
+    if (gerData && gerData.length > 0) {
+      const cols = Object.keys(gerData[0])
+      const colLoja = cols.find(k => k.toLowerCase().includes('listar') || k.toLowerCase().includes('loja')) || cols[0]
+      const colData = cols.find(k => k.toLowerCase().includes('data') || k.toLowerCase().includes('quebrar')) || cols[1]
+      const colVal = cols.find(k => k === 'Trocas-Trocas' || k.toLowerCase().includes('trocas-trocas'))
+
+      // Agrupa alertas por loja+data para pegar valor fiscal
+      const fiscMap = {}
+      alertas.forEach(a => {
+        const key = `${a.loja}__${a.data}`
+        if (!fiscMap[key]) fiscMap[key] = { fiscVal: a.fiscVal, gerVal: a.gerVal }
+      })
+
+      gerData.forEach(row => {
+        const loja = (row[colLoja] || '').trim()
+        const data = (row[colData] || '').trim()
+        const gerVal = parseFloat((row[colVal] || '0').toString().replace(',', '.')) || 0
+        if (!loja || !data) return
+
+        // Formata data para DD/MM/YYYY se vier em outro formato
+        let dataFmt = data
+        if (data.includes('-')) {
+          const [y, m, d] = data.split('-')
+          dataFmt = `${d}/${m}/${y}`
+        }
+
+        const key = `${loja}__${dataFmt}`
+        const fiscVal = fiscMap[key]?.fiscVal || 0
+        rows.push({
+          'Loja': loja,
+          'Data': dataFmt,
+          'Valor Gerencial (R$)': gerVal,
+          'Valor Total NF (R$)': fiscVal,
+          'Diferença (R$)': +(gerVal - fiscVal).toFixed(2)
+        })
+      })
+
+      // Ordena por data crescente
+      rows.sort((a, b) => parseDateBR(a['Data']).localeCompare(parseDateBR(b['Data'])))
+    } else {
+      // Fallback: usa alertas se não houver dados brutos
+      alertas
+        .slice()
+        .sort((a, b) => parseDateBR(a.data).localeCompare(parseDateBR(b.data)))
+        .forEach(a => {
+          rows.push({
+            'Loja': a.loja,
+            'Data': a.data,
+            'Valor Gerencial (R$)': a.gerVal || 0,
+            'Valor Total NF (R$)': a.fiscVal || 0,
+            'Diferença (R$)': typeof a.diverg === 'number' ? +a.diverg.toFixed(2) : 0
+          })
+        })
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatório')
+    XLSX.writeFile(wb, 'relatorio_trocas.xlsx')
   }
 
   if (!alertas.length) {
@@ -90,18 +184,21 @@ export default function Alertas({ alertas, onStatusChange, onInsight }) {
           <option value="">Todas as lojas</option>
           {lojas.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
-        <select value={filterTipo} onChange={e => setFilterTipo(e.target.value)}
+        <select value={filterMes} onChange={e => setFilterMes(e.target.value)}
           style={{ padding: '6px 10px', borderRadius: 8, border: '0.5px solid #d1d5db', background: '#fff', fontSize: 13 }}>
-          <option value="">Todos os tipos</option>
-          {Object.entries(TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value="">Todos os meses</option>
+          {meses.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
           style={{ padding: '6px 10px', borderRadius: 8, border: '0.5px solid #d1d5db', background: '#fff', fontSize: 13 }}>
           <option value="">Todos os status</option>
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <Btn onClick={exportXLSX}>
-          <i className="ti ti-download" aria-hidden="true" /> Exportar XLS
+        <Btn onClick={exportDivergencias}>
+          <i className="ti ti-download" aria-hidden="true" /> Exportar divergências
+        </Btn>
+        <Btn onClick={exportRelatorio}>
+          <i className="ti ti-table-export" aria-hidden="true" /> Exportar relatório
         </Btn>
         <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 'auto' }}>{filtered.length} alertas</span>
       </div>

@@ -4,7 +4,6 @@ import { useAnalise } from './hooks/useAnalise.js'
 import Upload from './pages/Upload.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Alertas from './pages/Alertas.jsx'
-import LojaDetail from './pages/LojaDetail.jsx'
 import Historico from './pages/Historico.jsx'
 
 const AGREGADOR_URL = 'https://agregador-boti.vercel.app'
@@ -12,7 +11,6 @@ const TABS = [
   { id: 'upload', label: 'Arquivos', icon: 'ti-upload' },
   { id: 'dashboard', label: 'Dashboard', icon: 'ti-chart-bar' },
   { id: 'alertas', label: 'Alertas', icon: 'ti-alert-triangle' },
-  { id: 'lojas', label: 'Por loja', icon: 'ti-building-store' },
   { id: 'historico', label: 'Histórico', icon: 'ti-history' }
 ]
 
@@ -121,9 +119,10 @@ export default function App() {
             alertas={alertas}
             onStatusChange={updateStatus}
             onInsight={getInsight}
+            gerData={ctx.gerData}
+            trocasData={ctx.trocasData}
           />
         )}
-        {activeTab === 'lojas' && <LojaDetail alertas={alertas} scores={scores} />}
         {activeTab === 'historico' && <Historico />}
       </div>
 
